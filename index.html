@@ -173,6 +173,146 @@ const Snd = {
   wave(){ this.tone(440, 880, .25, "triangle", .08); }
 };
 
+/* ============================== MUSIC ============================== */
+/* Dark drum & bass, synthesized live: two-step break + detuned reese bass in E minor. */
+const Music = {
+  playing:false, timer:null, step:0, bar:0, nextT:0, bpm:172, vol:null, noiseBuf:null,
+  ensure(){
+    const c = Snd.ctx; if(!c) return false;
+    if(!this.vol){ this.vol = c.createGain(); this.vol.gain.value = .9; this.vol.connect(c.destination); }
+    if(!this.noiseBuf){
+      const n = c.sampleRate * .3, b = c.createBuffer(1, n, c.sampleRate), d = b.getChannelData(0);
+      for(let i=0;i<n;i++) d[i] = Math.random()*2-1;
+      this.noiseBuf = b;
+    }
+    return true;
+  },
+  start(){
+    Snd.init();
+    if(!this.ensure()) return;
+    this.step = 0; this.bar = 0;
+    if(this.playing) return;
+    this.playing = true;
+    this.nextT = Snd.ctx.currentTime + .06;
+    this.timer = setInterval(()=>this.tick(), 25);
+  },
+  stop(){ this.playing = false; if(this.timer){ clearInterval(this.timer); this.timer = null; } },
+  tick(){
+    const c = Snd.ctx; if(!c) return;
+    const s16 = 60/this.bpm/4;
+    if(this.nextT < c.currentTime - .25) this.nextT = c.currentTime + .05; // resync after tab throttling
+    while(this.nextT < c.currentTime + .12){
+      if(!Snd.muted && !paused && state === "play") this.schedule(this.step, this.nextT, s16);
+      this.step = (this.step + 1) % 32;
+      if(this.step === 0) this.bar = (this.bar + 2) % 8;
+      this.nextT += s16;
+    }
+  },
+  kick(t){
+    const c = Snd.ctx, o = c.createOscillator(), g = c.createGain();
+    o.type = "sine";
+    o.frequency.setValueAtTime(150, t);
+    o.frequency.exponentialRampToValueAtTime(40, t + .12);
+    g.gain.setValueAtTime(.42, t);
+    g.gain.exponentialRampToValueAtTime(.001, t + .16);
+    o.connect(g).connect(this.vol); o.start(t); o.stop(t + .18);
+  },
+  snare(t, vol){
+    const c = Snd.ctx;
+    const src = c.createBufferSource(); src.buffer = this.noiseBuf;
+    const bp = c.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 1900; bp.Q.value = .8;
+    const g = c.createGain();
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(.001, t + .11);
+    src.connect(bp); bp.connect(g); g.connect(this.vol); src.start(t); src.stop(t + .12);
+    const o = c.createOscillator(), og = c.createGain();
+    o.type = "triangle"; o.frequency.setValueAtTime(210, t);
+    og.gain.setValueAtTime(vol * .7, t);
+    og.gain.exponentialRampToValueAtTime(.001, t + .06);
+    o.connect(og); og.connect(this.vol); o.start(t); o.stop(t + .07);
+  },
+  hat(t, vol){
+    const c = Snd.ctx;
+    const src = c.createBufferSource(); src.buffer = this.noiseBuf;
+    const hp = c.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 8200;
+    const g = c.createGain();
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(.001, t + .03);
+    src.connect(hp); hp.connect(g); g.connect(this.vol); src.start(t); src.stop(t + .04);
+  },
+  reese(f, t, dur){
+    const c = Snd.ctx;
+    const lp = c.createBiquadFilter(); lp.type = "lowpass"; lp.Q.value = 3;
+    lp.frequency.setValueAtTime(320, t);
+    lp.frequency.linearRampToValueAtTime(720, t + dur * .5);
+    lp.frequency.linearRampToValueAtTime(260, t + dur);
+    const g = c.createGain();
+    g.gain.setValueAtTime(.0001, t);
+    g.gain.linearRampToValueAtTime(.14, t + .02);
+    g.gain.setValueAtTime(.14, t + Math.max(.03, dur - .06));
+    g.gain.linearRampToValueAtTime(.0001, t + dur);
+    lp.connect(g); g.connect(this.vol);
+    for(const det of [-14, 14]){
+      const o = c.createOscillator(); o.type = "sawtooth";
+      o.frequency.value = f * 2; o.detune.value = det;
+      o.connect(lp); o.start(t); o.stop(t + dur + .03);
+    }
+    const sub = c.createOscillator(); sub.type = "sine"; sub.frequency.value = f;
+    const sg = c.createGain(); sg.gain.value = .8;
+    sub.connect(sg); sg.connect(g);
+    sub.start(t); sub.stop(t + dur + .03);
+  },
+  pad(t){
+    const c = Snd.ctx;
+    const lp = c.createBiquadFilter(); lp.type = "lowpass";
+    lp.frequency.setValueAtTime(420, t);
+    lp.frequency.linearRampToValueAtTime(900, t + 5.5);
+    lp.frequency.linearRampToValueAtTime(380, t + 11);
+    const g = c.createGain();
+    g.gain.setValueAtTime(.0001, t);
+    g.gain.linearRampToValueAtTime(.035, t + 2.5);
+    g.gain.setValueAtTime(.035, t + 8.5);
+    g.gain.linearRampToValueAtTime(.0001, t + 11);
+    lp.connect(g); g.connect(this.vol);
+    for(const [f, det] of [[82.4,-6],[123.5,5],[164.8,-4],[196,7]]){ // E2 B2 E3 G3
+      const o = c.createOscillator(); o.type = "sawtooth";
+      o.frequency.value = f; o.detune.value = det;
+      o.connect(lp); o.start(t); o.stop(t + 11.2);
+    }
+  },
+  bleep(t){
+    const c = Snd.ctx, o = c.createOscillator(), g = c.createGain();
+    o.type = "sine";
+    o.frequency.setValueAtTime(1318.5, t);
+    o.frequency.exponentialRampToValueAtTime(987.8, t + .35);
+    g.gain.setValueAtTime(.03, t);
+    g.gain.exponentialRampToValueAtTime(.0005, t + .5);
+    o.connect(g).connect(this.vol); o.start(t); o.stop(t + .55);
+  },
+  schedule(st, t, s16){
+    const boss = !!G.boss;
+    const bar = st < 16 ? 0 : 1;
+    const s = st % 16;
+    // two-step break
+    if(s === 0 || s === 10) this.kick(t);
+    if(bar === 1 && s === 13) this.kick(t);
+    if(s === 4 || s === 12) this.snare(t, .2);
+    if(bar === 1 && s === 15) this.snare(t, .07);
+    if(bar === 0 && s === 7) this.snare(t, .06);
+    if(s % 2 === 0) this.hat(t, s % 4 === 0 ? .05 : .09);
+    else if(boss || s % 4 === 3) this.hat(t, .035);
+    // reese bassline — darker half-step figure while the dreadnought is up
+    const E1 = 41.2, F1 = 43.65, G1 = 49.0, A1 = 55.0, Bb1 = 58.27;
+    const line = boss
+      ? [[0,E1,10],[10,F1,4],[16,E1,6],[22,Bb1,4],[26,F1,5]]
+      : [[0,E1,10],[10,E1,4],[16,G1,6],[22,Bb1,4],[26,A1,5]];
+    for(const [ls, f, len] of line) if(st === ls) this.reese(f, t, len * s16);
+    // atmosphere
+    if(st === 0 && this.bar === 0) this.pad(t);
+    if(st === 28 && (this.bar === 4 || boss)) this.bleep(t);
+  }
+};
+
 /* ============================== SPRITES ============================== */
 /* Pixel-map aliens, two animation frames each, pre-rendered with glow. */
 const MAPS = {
@@ -1487,6 +1627,7 @@ function renderHUD(){
 /* ============================== FLOW ============================== */
 function startGame(){
   Snd.init();
+  Music.start();
   document.getElementById("menu").hidden = true;
   document.getElementById("gameover").hidden = true;
   paused = false; document.getElementById("paused").hidden = true;
@@ -1495,6 +1636,7 @@ function startGame(){
 }
 function gameOver(reason){
   state = "over";
+  Music.stop();
   const best = Math.max(G.best, G.score);
   const isNew = G.score > G.best && G.score > 0;
   localStorage.setItem("nebulaSiegeBest", best);
