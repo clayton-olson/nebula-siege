@@ -81,6 +81,7 @@
       <b>&larr; &rarr;</b> or <b>A D</b> move &nbsp;&middot;&nbsp; <b>SPACE</b> fire &nbsp;&middot;&nbsp; <b>P</b> pause &nbsp;&middot;&nbsp; <b>M</b> sound<br>
       touch: drag to fly, firing is automatic<br>
       chain kills to raise your <b>multiplier</b> &middot; catch power cores &middot; beware the dreadnought<br>
+      shoot the <b>broodmother</b> before she births her serpents &mdash; pop a snake's head to detonate it<br>
       grab <b>U</b> cores to upgrade your ship &mdash; twin guns, cannons, missiles, cluster bombs
     </div>
     <button class="go" id="startBtn">LAUNCH</button>
@@ -125,7 +126,8 @@ const TAU = Math.PI * 2;
 
 const COL = {
   cyan:"#53e6ff", magenta:"#ff4d9d", violet:"#a06bff",
-  teal:"#3ef0c8", amber:"#ffc94d", white:"#e8ecff", red:"#ff5a5a"
+  teal:"#3ef0c8", amber:"#ffc94d", white:"#e8ecff", red:"#ff5a5a",
+  acid:"#8dff4a"
 };
 
 /* ============================== AUDIO ============================== */
@@ -164,6 +166,8 @@ const Snd = {
   cannon(){ this.tone(300, 90, .12, "square", .07); },
   missile(){ this.noise(.15, .08, 2500); this.tone(700, 180, .25, "sawtooth", .05); },
   cluster(){ this.tone(240, 60, .3, "triangle", .12); this.noise(.12, .06, 800); },
+  snake(){ this.tone(160, 520, .35, "sawtooth", .07); this.noise(.2, .05, 600); },
+  mship(){ [0,.18,.36].forEach(w=>this.tone(90+w*220, 55, .3, "sawtooth", .11, w)); },
   upgrade(){ [523,659,784,1046].forEach((f,i)=>this.tone(f, f, .12, "square", .07, i*.08)); },
   bossWarn(){ [0,.25,.5].forEach(w=>this.tone(160, 90, .22, "sawtooth", .16, w)); },
   wave(){ this.tone(440, 880, .25, "triangle", .08); }
@@ -173,26 +177,32 @@ const Snd = {
 /* Pixel-map aliens, two animation frames each, pre-rendered with glow. */
 const MAPS = {
   squid:[[
-    "...XX...","..XXXX..",".XXXXXX.","XX.XX.XX",
-    "XXXXXXXX","..X..X..",".X.XX.X.","X.X..X.X"
+    "..X..X..",".XXXXXX.","XXXXXXXX","XX.XX.XX",
+    "XXXXXXXX",".XXXXXX.","X.X..X.X",".X.XX.X."
   ],[
-    "...XX...","..XXXX..",".XXXXXX.","XX.XX.XX",
-    "XXXXXXXX",".X.XX.X.","X......X",".X....X."
+    "..X..X..",".XXXXXX.","XXXXXXXX","XX.XX.XX",
+    "XXXXXXXX",".XXXXXX.",".X.XX.X.","X.X..X.X"
   ]],
   crab:[[
-    "..X.....X..","...X...X...","..XXXXXXX..",".XX.XXX.XX.",
-    "XXXXXXXXXXX","X.XXXXXXX.X","X.X.....X.X","...XX.XX..."
+    "X...X.X...X",".X..X.X..X.","..XXXXXXX..",".XX.XXX.XX.",
+    "XXXXXXXXXXX","X.XXXXXXX.X","X.X.....X.X","..X.X.X.X.."
   ],[
-    "..X.....X..","X..X...X..X","X.XXXXXXX.X","XXX.XXX.XXX",
-    ".XXXXXXXXX.","..XXXXXXX..","..X.....X..",".X.......X."
+    ".X..X.X..X.","X...X.X...X","..XXXXXXX..","XXX.XXX.XXX",
+    ".XXXXXXXXX.","..XXXXXXX..","..X..X..X..",".X.X...X.X."
   ]],
   octo:[[
-    "....XXXX....",".XXXXXXXXXX.","XXXXXXXXXXXX","XXX..XX..XXX",
-    "XXXXXXXXXXXX","..XXX..XXX..",".XX..XX..XX.","XX........XX"
+    "X..X.XX.X..X",".X.XXXXXX.X.","XXXXXXXXXXXX","XX.XX..XX.XX",
+    "XXXXXXXXXXXX","..XX.XX.XX..",".X..X..X..X.","X.X......X.X"
   ],[
-    "....XXXX....",".XXXXXXXXXX.","XXXXXXXXXXXX","XXX..XX..XXX",
-    "XXXXXXXXXXXX","...XX..XX...","..X.XXXX.X..",".X..X..X..X."
+    ".X.X.XX.X.X.","X.XXXXXXXX.X","XXXXXXXXXXXX","XX.XX..XX.XX",
+    "XXXXXXXXXXXX",".XX..XX..XX.","X..X..X..X..",".X.X....X.X."
   ]]
+};
+/* googly eye placement per alien kind (octo gets a third eye, obviously) */
+const EYES = {
+  squid:{ off:[[-7,-8],[7,-8]], r:3 },
+  crab: { off:[[-10,-4],[10,-4]], r:3.4 },
+  octo: { off:[[-13,-6],[13,-6],[0,-11]], r:3 }
 };
 function renderMap(map, color, px){
   const cols = map[0].length, rows = map.length, pad = px*2.2;
@@ -328,6 +338,7 @@ function resetGame(){
   G.player = { x:W/2, y:H-96, w:46, h:38, vx:0, cd:0, mk:1, msl:0, clu:0,
     weapon:"single", weaponT:0, shield:0, invuln:2, alive:true, deadT:0 };
   G.bullets = []; G.ebullets = []; G.enemies = []; G.powerups = []; G.missiles = []; G.emissiles = []; G.clusters = []; G.bomblets = [];
+  G.snakes = []; G.mship = null; G.mshipT = 11;
   G.particles = []; G.texts = []; G.rings = [];
   G.boss = null; G.bunkers = [];
   G.form = { x:0, y:0, dir:1, speed:0, total:0 };
@@ -343,6 +354,7 @@ function nextWave(){
   G.wave++;
   G.bullets.length = 0; G.ebullets.length = 0; G.powerups.length = 0; G.missiles.length = 0;
   G.emissiles.length = 0; G.clusters.length = 0; G.bomblets.length = 0;
+  G.snakes.length = 0; G.mship = null; G.mshipT = 10;
   buildBunkers();
   if(G.wave % 4 === 0){ spawnBoss(); banner("DREADNOUGHT INBOUND"); Snd.bossWarn(); }
   else { spawnFormation(); banner("WAVE " + G.wave); Snd.wave(); }
@@ -551,6 +563,29 @@ function applyPower(t){
     return;
   }
   p.weapon = t.k; p.weaponT = 12;
+}
+
+/* ============================== SNAKES & BROODMOTHER ============================== */
+function spawnSnake(x, y){
+  const n = 9 + Math.min(5, Math.floor(G.wave/2));
+  const segs = [];
+  for(let k=0;k<n;k++) segs.push({ x, y: y - k*10 });
+  G.snakes.push({ segs, t:0, baseX:x,
+    speed: 115 + G.wave*7 + rand(-10,25),
+    amp: rand(60,130), freq: rand(2.2,3.4) });
+  Snd.snake();
+}
+function killSnake(i, reward){
+  const sn = G.snakes[i];
+  for(const sg of sn.segs){
+    G.rings.push({ x:sg.x, y:sg.y, r:2, vr:220, life:.3, t:0, c:COL.acid });
+    for(let q=0;q<5;q++)
+      G.particles.push({ x:sg.x, y:sg.y, vx:rand(-160,160), vy:rand(-160,160),
+        life:rand(.25,.5), t:0, r:rand(1.5,3), c:Math.random()<.3?"#ffffff":COL.acid });
+  }
+  Snd.boom(false); shake(4,.2);
+  if(reward) addKill(120 + sn.segs.length*10, sn.segs[0].x, sn.segs[0].y);
+  G.snakes.splice(i,1);
 }
 
 /* ============================== BUNKER DAMAGE ============================== */
@@ -790,6 +825,61 @@ function update(dt){
     }
   }
 
+  /* --- broodmother --- */
+  if(!G.boss){
+    const formAlive = G.enemies.some(e=>e.hp>0);
+    if(!G.mship && formAlive){
+      G.mshipT -= dt;
+      if(G.mshipT <= 0){
+        const dir = Math.random() < .5 ? 1 : -1;
+        G.mship = { x: dir>0 ? -150 : W+150, y:54, dir, t:0,
+          hp: 20 + G.wave*4, maxHp: 20 + G.wave*4, spawnT:1.6 };
+        toast("BROODMOTHER INBOUND", COL.acid);
+        Snd.mship();
+      }
+    }
+    if(G.mship){
+      const m = G.mship;
+      m.t += dt;
+      m.x += m.dir * (52 + G.wave*3) * dt;
+      m.spawnT -= dt;
+      if(m.spawnT <= 0 && G.snakes.length < 3 && m.x > 40 && m.x < W-40){
+        m.spawnT = 3.4;
+        spawnSnake(m.x, m.y + 34);
+      }
+      if(m.x < -160 || m.x > W+160){ G.mship = null; G.mshipT = 20; }
+    }
+  }
+
+  /* --- alien snakes --- */
+  for(let i=G.snakes.length-1; i>=0; i--){
+    const sn = G.snakes[i];
+    sn.t += dt;
+    const head = sn.segs[0];
+    sn.baseX += clamp(p.x - sn.baseX, -55, 55) * dt;
+    head.x = sn.baseX + Math.sin(sn.t*sn.freq)*sn.amp;
+    head.y += sn.speed*dt;
+    const SP = 13;
+    for(let k=1;k<sn.segs.length;k++){
+      const pr = sn.segs[k-1], sg = sn.segs[k];
+      const dx = pr.x-sg.x, dy = pr.y-sg.y, d = Math.hypot(dx,dy)||1;
+      if(d > SP){ sg.x += dx/d*(d-SP); sg.y += dy/d*(d-SP); }
+    }
+    if(Math.random() < .25){
+      const sg = sn.segs[Math.floor(Math.random()*sn.segs.length)];
+      G.particles.push({ x:sg.x, y:sg.y, vx:rand(-20,20), vy:rand(-20,20),
+        life:.3, t:0, r:1.6, c:COL.acid });
+    }
+    if(p.alive && p.invuln <= 0){
+      let bit = false;
+      for(const sg of sn.segs){
+        if(Math.abs(sg.x-p.x) < 24+(p.mk-1)*2.5 && Math.abs(sg.y-p.y) < 22+(p.mk-1)*1.5){ bit = true; break; }
+      }
+      if(bit){ killSnake(i, false); hitPlayer(); continue; }
+    }
+    if(sn.segs[sn.segs.length-1].y > H+40) G.snakes.splice(i,1);
+  }
+
   /* --- bullets --- */
   for(let i=G.bullets.length-1; i>=0; i--){
     const u = G.bullets[i];
@@ -805,6 +895,36 @@ function update(dt){
         addKill(25, em.x, em.y);
         if(Math.random() < .25) maybeDrop(em.x, em.y, 1); // skeet-shooting pays off
         hit = true; break;
+      }
+    }
+    if(!hit) for(let s=G.snakes.length-1; s>=0 && !hit; s--){ // chop the serpents
+      const sn = G.snakes[s];
+      for(let k=0;k<sn.segs.length;k++){
+        const sg = sn.segs[k];
+        if(Math.abs(u.x-sg.x) < 11 && Math.abs(u.y-sg.y) < 11){
+          hit = true;
+          if(k === 0 || sn.segs.length <= 3){ killSnake(s, true); }
+          else {
+            sn.segs.splice(k, 1);
+            debris(sg.x, sg.y, COL.acid);
+            addKill(20, sg.x, sg.y);
+          }
+          break;
+        }
+      }
+    }
+    if(!hit && G.mship){
+      const m = G.mship;
+      if(Math.abs(u.x-m.x) < 72 && Math.abs(u.y-m.y) < 26){
+        m.hp -= u.dmg; hit = true;
+        debris(u.x, u.y, COL.acid);
+        if(m.hp <= 0){
+          boom(m.x-40, m.y, COL.acid, true); boom(m.x+40, m.y, COL.acid, false);
+          addKill(400, m.x, m.y);
+          if(G.player.mk < MAX_MK) dropCore(m.x, m.y); else maybeDrop(m.x, m.y, 1);
+          maybeDrop(m.x+34, m.y, .8);
+          G.mship = null; G.mshipT = 24;
+        }
       }
     }
     if(!hit) for(const e of G.enemies){
@@ -1024,7 +1144,9 @@ function render(){
 
   if(state !== "menu"){
     renderBunkers();
+    renderMothership();
     renderEnemies();
+    renderSnakes();
     renderBoss();
     renderBullets();
     renderMissiles();
@@ -1062,14 +1184,100 @@ function renderBunkers(){
 
 function renderEnemies(){
   const frame = Math.floor(tGlobal*2.4) % 2;
+  const p = G.player;
   for(const e of G.enemies){
     const A = ALIEN[e.kind];
     const spr = A.frames[frame];
+    const wob = Math.sin(tGlobal*2.2 + e.col*.9 + e.row*1.3) * .1;
+    const pulse = 1 + Math.sin(tGlobal*5 + e.col + e.row) * .05;
+    const sc = e.state==="dive" ? 1.1 : 1;
+    ctx.save();
     ctx.globalAlpha = e.fade;
-    const sc = e.state==="dive" ? 1.08 : 1;
-    ctx.drawImage(spr, e.x - spr.width/2*sc, e.y - spr.height/2*sc, spr.width*sc, spr.height*sc);
-    ctx.globalAlpha = 1;
+    ctx.translate(e.x, e.y);
+    ctx.rotate(e.state==="dive" ? wob*3 : wob);
+    ctx.scale(sc*pulse, sc*(2-pulse)); // squash & stretch
+    ctx.drawImage(spr, -spr.width/2, -spr.height/2);
+    // googly eyes that track the player
+    const ang = Math.atan2(p.y - e.y, p.x - e.x);
+    const ex = Math.cos(ang)*1.8, ey = Math.sin(ang)*1.8;
+    const E = EYES[e.kind];
+    for(const [ox,oy] of E.off){
+      ctx.fillStyle = "#f4f7ff";
+      ctx.beginPath(); ctx.arc(ox, oy, E.r, 0, TAU); ctx.fill();
+      ctx.fillStyle = "#1a0b26";
+      ctx.beginPath(); ctx.arc(ox+ex, oy+ey, E.r*.5, 0, TAU); ctx.fill();
+    }
+    ctx.restore();
   }
+}
+
+function renderMothership(){
+  const m = G.mship; if(!m) return;
+  const p = G.player;
+  const bobY = m.y + Math.sin(m.t*2.1)*5;
+  ctx.save();
+  ctx.translate(m.x, bobY);
+  // writhing tentacles
+  ctx.strokeStyle = COL.acid; ctx.shadowColor = COL.acid; ctx.shadowBlur = 8;
+  ctx.lineWidth = 3; ctx.globalAlpha = .85;
+  for(let i=0;i<7;i++){
+    const bx = -48 + i*16;
+    ctx.beginPath(); ctx.moveTo(bx, 12);
+    ctx.quadraticCurveTo(bx + Math.sin(m.t*5 + i*1.3)*9, 30,
+                         bx + Math.sin(m.t*3.4 + i*2.1)*16, 46);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  // hull + dome
+  ctx.fillStyle = "#0d2a14"; ctx.strokeStyle = COL.acid; ctx.lineWidth = 2.5;
+  ctx.shadowBlur = 18;
+  ctx.beginPath(); ctx.ellipse(0, 2, 72, 20, 0, 0, TAU); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = "#123a1b";
+  ctx.beginPath(); ctx.ellipse(0, -10, 34, 22, 0, Math.PI, TAU); ctx.fill(); ctx.stroke();
+  // the great eye, tracking the player
+  const a = Math.atan2(p.y - bobY, p.x - m.x);
+  ctx.shadowColor = "#ffffff"; ctx.shadowBlur = 10;
+  ctx.fillStyle = "#f4f7ff";
+  ctx.beginPath(); ctx.arc(0, -12, 11, 0, TAU); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = "#c40f3f";
+  ctx.beginPath(); ctx.arc(Math.cos(a)*4.5, -12 + Math.sin(a)*4.5, 5.5, 0, TAU); ctx.fill();
+  ctx.fillStyle = "#000000";
+  ctx.beginPath(); ctx.arc(Math.cos(a)*5.5, -12 + Math.sin(a)*5.5, 2.4, 0, TAU); ctx.fill();
+  // rotating rim lights
+  for(let i=0;i<8;i++){
+    const ra = m.t*2.5 + i*TAU/8;
+    ctx.fillStyle = i%2 ? COL.magenta : COL.amber;
+    ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 8;
+    ctx.beginPath(); ctx.arc(Math.cos(ra)*62, Math.sin(ra)*14 + 4, 3, 0, TAU); ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+  // hp bar
+  const ph = clamp(m.hp/m.maxHp, 0, 1);
+  ctx.fillStyle = "rgba(255,255,255,.15)"; ctx.fillRect(-40, -46, 80, 5);
+  ctx.fillStyle = COL.acid; ctx.fillRect(-40, -46, 80*ph, 5);
+  ctx.restore();
+}
+
+function renderSnakes(){
+  for(const sn of G.snakes){
+    for(let k=sn.segs.length-1; k>=0; k--){
+      const sg = sn.segs[k];
+      const r = (k===0 ? 8.5 : 6) + Math.sin(sn.t*9 - k*.9)*1.2;
+      ctx.fillStyle = k===0 ? "#c8ff7a" : (k%2 ? COL.acid : "#3fae2a");
+      ctx.shadowColor = COL.acid; ctx.shadowBlur = 12;
+      ctx.beginPath(); ctx.arc(sg.x, sg.y, Math.max(2,r), 0, TAU); ctx.fill();
+    }
+    const h = sn.segs[0];
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath(); ctx.arc(h.x-3.5, h.y-2, 2.6, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(h.x+3.5, h.y-2, 2.6, 0, TAU); ctx.fill();
+    ctx.fillStyle = "#c40f3f";
+    ctx.beginPath(); ctx.arc(h.x-3.5, h.y-1, 1.3, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(h.x+3.5, h.y-1, 1.3, 0, TAU); ctx.fill();
+  }
+  ctx.shadowBlur = 0;
 }
 
 function renderBoss(){
@@ -1320,6 +1528,7 @@ document.getElementById("retryBtn").addEventListener("click", startGame);
 /* init minimal G so background renders on menu */
 G.particles = []; G.rings = []; G.texts = []; G.bunkers = [];
 G.bullets = []; G.ebullets = []; G.enemies = []; G.powerups = []; G.missiles = []; G.emissiles = []; G.clusters = []; G.bomblets = [];
+G.snakes = []; G.mship = null; G.mshipT = 11;
 
 let last = performance.now();
 function loop(now){
