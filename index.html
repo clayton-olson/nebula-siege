@@ -156,203 +156,68 @@ const Snd = {
     const g = this.ctx.createGain(); g.gain.value = vol;
     src.connect(f).connect(g).connect(this.ctx.destination); src.start();
   },
-  shoot(){ this.tone(920, 240, .09, "square", .05); },
-  laser(){ this.tone(1400, 900, .06, "sawtooth", .035); },
-  eshoot(){ this.tone(300, 120, .12, "square", .04); },
+  shoot(){ this.tone(1150, 190, .1, "square", .065); this.tone(2300, 500, .05, "sawtooth", .025); },
+  laser(){ this.tone(1500, 650, .1, "sawtooth", .05); this.tone(880, 320, .12, "square", .035); },
+  eshoot(){ this.tone(320, 110, .14, "square", .05); },
   boom(big){ this.noise(big? .5 : .28, big? .32 : .18, big? 900 : 1600); if(big) this.tone(120, 30, .5, "triangle", .25); },
   hit(){ this.tone(200, 60, .2, "sawtooth", .18); this.noise(.25,.2,1200); },
   power(){ [660,880,1320].forEach((f,i)=>this.tone(f, f, .1, "square", .06, i*.07)); },
   chain(n){ this.tone(500+n*120, 500+n*120, .07, "square", .05); },
-  cannon(){ this.tone(300, 90, .12, "square", .07); },
+  cannon(){ this.tone(250, 55, .18, "square", .1); this.noise(.08, .05, 700); },
   missile(){ this.noise(.15, .08, 2500); this.tone(700, 180, .25, "sawtooth", .05); },
   cluster(){ this.tone(240, 60, .3, "triangle", .12); this.noise(.12, .06, 800); },
   snake(){ this.tone(160, 520, .35, "sawtooth", .07); this.noise(.2, .05, 600); },
   mship(){ [0,.18,.36].forEach(w=>this.tone(90+w*220, 55, .3, "sawtooth", .11, w)); },
+  march(i){ const f = [82.4, 73.4, 65.4, 61.7][i % 4];
+    this.tone(f, f*.97, .13, "square", .09); this.tone(f*2, f*1.9, .08, "triangle", .04); },
+  chatter(){ const f = rand(280, 720);
+    this.tone(f, f*1.5, .1, "square", .028); this.tone(f*1.35, f*.75, .14, "square", .022, .09); },
+  dive(){ this.tone(1250, 260, .45, "sawtooth", .05); },
+  dash(){ this.noise(.3, .12, 900); this.tone(180, 420, .25, "sawtooth", .06); },
+  startThruster(){
+    if(!this.ctx || this.thr) return;
+    const c = this.ctx;
+    const n = c.sampleRate, buf = c.createBuffer(1, n, c.sampleRate), d = buf.getChannelData(0);
+    for(let i=0;i<n;i++) d[i] = Math.random()*2-1;
+    const src = c.createBufferSource(); src.buffer = buf; src.loop = true;
+    const lp = c.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 300; lp.Q.value = .7;
+    const g = c.createGain(); g.gain.value = 0;
+    src.connect(lp); lp.connect(g); g.connect(c.destination);
+    const o = c.createOscillator(); o.type = "triangle"; o.frequency.value = 46;
+    const og = c.createGain(); og.gain.value = .5;
+    o.connect(og); og.connect(g);
+    src.start(); o.start();
+    this.thr = { g, o, lp };
+  },
+  setThrust(v){
+    if(!this.ctx || !this.thr) return;
+    if(this.muted) v = 0;
+    this.thr.g.gain.setTargetAtTime(v, this.ctx.currentTime, .08);
+    this.thr.o.frequency.setTargetAtTime(v > .03 ? 60 : 46, this.ctx.currentTime, .12);
+    this.thr.lp.frequency.setTargetAtTime(v > .03 ? 540 : 300, this.ctx.currentTime, .12);
+  },
+  startUfo(){
+    if(!this.ctx || this.ufo) return;
+    const c = this.ctx;
+    const o = c.createOscillator(); o.type = "triangle"; o.frequency.value = 620;
+    const lfo = c.createOscillator(); lfo.type = "sine"; lfo.frequency.value = 3.1;
+    const lg = c.createGain(); lg.gain.value = 130;
+    lfo.connect(lg); lg.connect(o.frequency);
+    const g = c.createGain(); g.gain.value = .0001;
+    g.gain.setTargetAtTime(.026, c.currentTime, .3);
+    o.connect(g); g.connect(c.destination);
+    o.start(); lfo.start();
+    this.ufo = { o, lfo, g };
+  },
+  stopUfo(){
+    if(!this.ctx || !this.ufo) return;
+    const { o, lfo, g } = this.ufo; this.ufo = null;
+    g.gain.setTargetAtTime(.0001, this.ctx.currentTime, .12);
+    o.stop(this.ctx.currentTime + .6); lfo.stop(this.ctx.currentTime + .6);
+  },
   upgrade(){ [523,659,784,1046].forEach((f,i)=>this.tone(f, f, .12, "square", .07, i*.08)); },
   bossWarn(){ [0,.25,.5].forEach(w=>this.tone(160, 90, .22, "sawtooth", .16, w)); },
   wave(){ this.tone(440, 880, .25, "triangle", .08); }
-};
-
-/* ============================== MUSIC ============================== */
-/* Dark drum & bass, synthesized live: two-step break + detuned reese bass in E minor. */
-const Music = {
-  playing:false, timer:null, step:0, loop:0, nextT:0, bpm:172, vol:null, noiseBuf:null,
-  ensure(){
-    const c = Snd.ctx; if(!c) return false;
-    if(!this.vol){ this.vol = c.createGain(); this.vol.gain.value = .5; this.vol.connect(c.destination); }
-    if(!this.noiseBuf){
-      const n = c.sampleRate * .3, b = c.createBuffer(1, n, c.sampleRate), d = b.getChannelData(0);
-      for(let i=0;i<n;i++) d[i] = Math.random()*2-1;
-      this.noiseBuf = b;
-    }
-    return true;
-  },
-  start(){
-    Snd.init();
-    if(!this.ensure()) return;
-    this.step = 0; this.loop = 0;
-    if(this.playing) return;
-    this.playing = true;
-    this.nextT = Snd.ctx.currentTime + .06;
-    this.timer = setInterval(()=>this.tick(), 25);
-  },
-  stop(){ this.playing = false; if(this.timer){ clearInterval(this.timer); this.timer = null; } },
-  tick(){
-    const c = Snd.ctx; if(!c) return;
-    const s16 = 60/this.bpm/4;
-    if(this.nextT < c.currentTime - .25) this.nextT = c.currentTime + .05; // resync after tab throttling
-    while(this.nextT < c.currentTime + .12){
-      if(!Snd.muted && !paused && state === "play") this.schedule(this.step, this.nextT, s16);
-      this.step = (this.step + 1) % 32;
-      if(this.step === 0) this.loop = (this.loop + 1) % 8;
-      this.nextT += s16;
-    }
-  },
-  kick(t){
-    const c = Snd.ctx, o = c.createOscillator(), g = c.createGain();
-    o.type = "sine";
-    o.frequency.setValueAtTime(150, t);
-    o.frequency.exponentialRampToValueAtTime(40, t + .12);
-    g.gain.setValueAtTime(.32, t);
-    g.gain.exponentialRampToValueAtTime(.001, t + .16);
-    o.connect(g).connect(this.vol); o.start(t); o.stop(t + .18);
-  },
-  snare(t, vol){
-    const c = Snd.ctx;
-    const src = c.createBufferSource(); src.buffer = this.noiseBuf;
-    const bp = c.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 1900; bp.Q.value = .8;
-    const g = c.createGain();
-    g.gain.setValueAtTime(vol, t);
-    g.gain.exponentialRampToValueAtTime(.001, t + .11);
-    src.connect(bp); bp.connect(g); g.connect(this.vol); src.start(t); src.stop(t + .12);
-    const o = c.createOscillator(), og = c.createGain();
-    o.type = "triangle"; o.frequency.setValueAtTime(210, t);
-    og.gain.setValueAtTime(vol * .7, t);
-    og.gain.exponentialRampToValueAtTime(.001, t + .06);
-    o.connect(og); og.connect(this.vol); o.start(t); o.stop(t + .07);
-  },
-  hat(t, vol){
-    const c = Snd.ctx;
-    const src = c.createBufferSource(); src.buffer = this.noiseBuf;
-    const hp = c.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 8200;
-    const g = c.createGain();
-    g.gain.setValueAtTime(vol, t);
-    g.gain.exponentialRampToValueAtTime(.001, t + .03);
-    src.connect(hp); hp.connect(g); g.connect(this.vol); src.start(t); src.stop(t + .04);
-  },
-  reese(f, t, dur){
-    const c = Snd.ctx;
-    const lp = c.createBiquadFilter(); lp.type = "lowpass"; lp.Q.value = 3;
-    lp.frequency.setValueAtTime(320, t);
-    lp.frequency.linearRampToValueAtTime(720, t + dur * .5);
-    lp.frequency.linearRampToValueAtTime(260, t + dur);
-    const g = c.createGain();
-    g.gain.setValueAtTime(.0001, t);
-    g.gain.linearRampToValueAtTime(.11, t + .02);
-    g.gain.setValueAtTime(.11, t + Math.max(.03, dur - .06));
-    g.gain.linearRampToValueAtTime(.0001, t + dur);
-    lp.connect(g); g.connect(this.vol);
-    for(const det of [-14, 14]){
-      const o = c.createOscillator(); o.type = "sawtooth";
-      o.frequency.value = f * 2; o.detune.value = det;
-      o.connect(lp); o.start(t); o.stop(t + dur + .03);
-    }
-    const sub = c.createOscillator(); sub.type = "sine"; sub.frequency.value = f;
-    const sg = c.createGain(); sg.gain.value = .8;
-    sub.connect(sg); sg.connect(g);
-    sub.start(t); sub.stop(t + dur + .03);
-  },
-  pad(t){
-    const c = Snd.ctx;
-    const lp = c.createBiquadFilter(); lp.type = "lowpass";
-    lp.frequency.setValueAtTime(420, t);
-    lp.frequency.linearRampToValueAtTime(900, t + 5.5);
-    lp.frequency.linearRampToValueAtTime(380, t + 11);
-    const g = c.createGain();
-    g.gain.setValueAtTime(.0001, t);
-    g.gain.linearRampToValueAtTime(.026, t + 2.5);
-    g.gain.setValueAtTime(.026, t + 8.5);
-    g.gain.linearRampToValueAtTime(.0001, t + 11);
-    lp.connect(g); g.connect(this.vol);
-    for(const [f, det] of [[82.4,-6],[123.5,5],[164.8,-4],[196,7]]){ // E2 B2 E3 G3
-      const o = c.createOscillator(); o.type = "sawtooth";
-      o.frequency.value = f; o.detune.value = det;
-      o.connect(lp); o.start(t); o.stop(t + 11.2);
-    }
-  },
-  bleep(t){
-    const c = Snd.ctx, o = c.createOscillator(), g = c.createGain();
-    o.type = "sine";
-    o.frequency.setValueAtTime(1318.5, t);
-    o.frequency.exponentialRampToValueAtTime(987.8, t + .35);
-    g.gain.setValueAtTime(.022, t);
-    g.gain.exponentialRampToValueAtTime(.0005, t + .5);
-    o.connect(g).connect(this.vol); o.start(t); o.stop(t + .55);
-  },
-  stab(t){
-    const c = Snd.ctx;
-    const lp = c.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 950;
-    const g = c.createGain();
-    g.gain.setValueAtTime(.04, t);
-    g.gain.exponentialRampToValueAtTime(.001, t + .18);
-    lp.connect(g); g.connect(this.vol);
-    for(const f of [164.8, 196, 246.9]){ // E3 G3 B3 minor stab
-      const o = c.createOscillator(); o.type = "sawtooth"; o.frequency.value = f;
-      o.connect(lp); o.start(t); o.stop(t + .2);
-    }
-  },
-  pluck(f, t){
-    const c = Snd.ctx, o = c.createOscillator(), g = c.createGain();
-    o.type = "triangle"; o.frequency.value = f;
-    g.gain.setValueAtTime(.024, t);
-    g.gain.exponentialRampToValueAtTime(.0008, t + .12);
-    o.connect(g).connect(this.vol); o.start(t); o.stop(t + .14);
-  },
-  /* 16-bar arrangement: A A B B C C D D (two bars per loop).
-     A groove · B variation + stabs · C breakdown · D peak with arp.
-     A dreadnought overrides everything with the darker boss pattern. */
-  schedule(st, t, s16){
-    const boss = !!G.boss;
-    const loop = this.loop;
-    const section = boss ? 3 : (loop >> 1);
-    const fill = (loop === 1 || loop === 3 || loop === 7);
-    const breakdown = section === 2 && loop === 4 && !boss;
-    const bar = st < 16 ? 0 : 1;
-    const s = st % 16;
-    const E1=41.2, F1=43.65, G1=49.0, A1=55.0, Bb1=58.27, B1=61.74, C2=65.41;
-
-    /* drums */
-    if(!breakdown){
-      if(s === 0 || s === 10) this.kick(t);
-      if(section >= 1 && bar === 0 && s === 6) this.kick(t);
-      if(bar === 1 && s === 13 && section !== 2) this.kick(t);
-      if(fill && bar === 1 && st >= 28){
-        this.snare(t, .05 + (st - 28) * .03); // rising roll into the next phrase
-      } else {
-        if(s === 4 || s === 12) this.snare(t, .15);
-        if(bar === 1 && s === 15) this.snare(t, .05);
-        if(bar === 0 && s === 7 && loop % 3 === 0) this.snare(t, .04);
-      }
-    }
-    if(s % 2 === 0) this.hat(t, s % 4 === 0 ? .03 : .055);
-    else if(boss || section === 3 || s % 4 === 3) this.hat(t, .025);
-
-    /* rotating reese basslines */
-    const L1 = [[0,E1,10],[10,E1,4],[16,G1,6],[22,Bb1,4],[26,A1,5]];
-    const L2 = [[0,E1,6],[6,E1,3],[10,G1,4],[16,A1,6],[22,C2,4],[26,B1,4]];
-    const L3 = [[0,E1,3],[4,G1,3],[8,E1,3],[12,Bb1,3],[16,A1,3],[20,G1,3],[24,F1,3],[28,E1,3]];
-    const LB = [[0,E1,12],[16,Bb1,12]];
-    const LBOSS = [[0,E1,10],[10,F1,4],[16,E1,6],[22,Bb1,4],[26,F1,5]];
-    const line = boss ? LBOSS : breakdown ? LB : [L1, L2, L1, L3][section];
-    for(const [ls, f, len] of line) if(st === ls) this.reese(f, t, len * s16);
-
-    /* color */
-    if(st === 0 && (loop === 0 || (loop === 4 && !boss))) this.pad(t);
-    if(section === 1 && loop === 2 && (st === 0 || st === 20)) this.stab(t);
-    if(section === 3 && !boss && st % 4 === 2)
-      this.pluck([329.6, 392, 493.9, 587.3][(st >> 2) % 4], t); // E4 G4 B4 D5 arp
-    if(st === 28 && (loop === 3 || loop === 5 || boss)) this.bleep(t);
-  }
 };
 
 /* ============================== SPRITES ============================== */
@@ -525,6 +390,8 @@ function resetGame(){
   G.boss = null; G.bunkers = [];
   G.form = { x:0, y:0, dir:1, speed:0, total:0 };
   G.diveT = 3; G.fireT = 1.2; G.bannerT = 0; G.bannerTxt = "";
+  G.marchT = 1; G.marchStep = 0; G.chatterT = 2;
+  Snd.stopUfo();
   G.best = +(localStorage.getItem("nebulaSiegeBest")||0);
   nextWave();
 }
@@ -537,8 +404,14 @@ function nextWave(){
   G.bullets.length = 0; G.ebullets.length = 0; G.powerups.length = 0; G.missiles.length = 0;
   G.emissiles.length = 0; G.clusters.length = 0; G.bomblets.length = 0;
   G.snakes.length = 0; G.mship = null; G.mshipT = 10;
+  G.marchT = 1.2; G.marchStep = 0;
+  Snd.stopUfo();
   buildBunkers();
-  if(G.wave % 4 === 0){ spawnBoss(); banner("DREADNOUGHT INBOUND"); Snd.bossWarn(); }
+  if(G.wave % 4 === 0){
+    spawnBoss();
+    banner(G.boss.tier > 1 ? "DREADNOUGHT MK" + G.boss.tier + " INBOUND" : "DREADNOUGHT INBOUND");
+    Snd.bossWarn();
+  }
   else { spawnFormation(); banner("WAVE " + G.wave); Snd.wave(); }
 }
 
@@ -562,9 +435,20 @@ function spawnFormation(){
 
 function spawnBoss(){
   G.enemies.length = 0;
-  G.boss = { x:W/2, y:-120, ty:170, w:230, h:96,
+  const tier = Math.max(1, Math.round(G.wave/4)); // MK1 at wave 4, MK2 at 8, ...
+  G.boss = { x:W/2, y:-120, ty:170, w:230, h:96, tier,
     hp: 190 + G.wave*28, maxHp: 190 + G.wave*28,
-    t:0, fireT:2, mslT:3.5, dropT:5, pat:0, dir:1, phase:0 };
+    t:0, fireT:2, mslT:3.5, dropT:5, dashT:5, dashUntil:0, escortT:4,
+    pat:0, dir:1, phase:0 };
+}
+
+function spawnMinion(x, y){
+  const kind = Math.random() < .5 ? "squid" : "crab";
+  G.enemies.push({ kind, col:0, row:0, x, y, hp:ALIEN[kind].hp,
+    state:"dive", t:0, fade:1, fireT:9, minion:true,
+    dive:{ x0:x, y0:y, cx:x+rand(-200,200), cy:y+rand(150,300),
+      x2:clamp(G.player.x+rand(-60,60), 40, W-40), y2:H+90,
+      dur:rand(1.8,2.6), shots:1, shotAt:rand(.3,.5) } });
 }
 
 function buildBunkers(){
@@ -811,6 +695,13 @@ function update(dt){
     const t = G.texts[i]; t.t += dt; t.y -= 34*dt;
     if(t.t >= t.life) G.texts.splice(i,1);
   }
+  // ship thruster + broodmother warble follow game state every frame
+  const pl = G.player;
+  Snd.setThrust(state === "play" && !paused && pl && pl.alive
+    ? (Math.abs(pl.vx) > 10 ? .05 : .02) : 0);
+  if(Snd.ufo && Snd.ctx)
+    Snd.ufo.g.gain.setTargetAtTime((Snd.muted || paused) ? .0001 : .026, Snd.ctx.currentTime, .15);
+
   if(state !== "play" || paused) return;
 
   const p = G.player;
@@ -860,6 +751,13 @@ function update(dt){
   if(G.chainT > 0){ G.chainT -= dt; if(G.chainT <= 0){ G.chain = 0; G.mult = 1; } }
   if(G.bannerT > 0) G.bannerT -= dt;
 
+  /* --- alien chatter --- */
+  G.chatterT -= dt;
+  if(G.chatterT <= 0){
+    G.chatterT = rand(1.6, 3.2);
+    if(G.enemies.some(e=>e.hp>0) || G.boss) Snd.chatter();
+  }
+
   /* --- formation --- */
   const alive = G.enemies.filter(e=>e.hp>0);
   if(!G.boss && alive.length){
@@ -877,6 +775,13 @@ function update(dt){
     if(minX < 46 && G.form.dir < 0){ G.form.dir = 1; G.form.y += 22; }
     if(maxY > H-270) { gameOver("THE SWARM HAS LANDED"); return; }
 
+    /* the invader march — quickens as the swarm thins */
+    G.marchT -= dt;
+    if(G.marchT <= 0){
+      G.marchT = .16 + (alive.length / G.form.total) * .72;
+      Snd.march(G.marchStep++);
+    }
+
     /* dive attacks */
     G.diveT -= dt;
     if(G.diveT <= 0){
@@ -885,6 +790,7 @@ function update(dt){
       if(formers.length){
         const e = formers[Math.floor(Math.random()*formers.length)];
         e.state = "dive"; e.t = 0;
+        Snd.dive();
         e.dive = {
           x0:e.x, y0:e.y,
           cx:e.x + rand(-1,1)*220, cy:e.y + rand(180,300),
@@ -929,9 +835,18 @@ function update(dt){
         enemyShoot(e.x, e.y+14, true);
       }
       if(t >= 1){
-        e.state = "form"; e.fade = 0;
-        e.x = G.form.x + e.col*G.form.spX;
-        e.y = G.form.y + e.row*G.form.spY;
+        if(e.minion){ // escorts loop: re-enter from the top on a fresh attack run
+          e.t = 0;
+          const sx = rand(60, W-60);
+          e.x = sx; e.y = -50;
+          e.dive = { x0:sx, y0:-50, cx:sx+rand(-200,200), cy:rand(150,350),
+            x2:clamp(p.x+rand(-60,60), 40, W-40), y2:H+90,
+            dur:rand(1.8,2.6), shots:1, shotAt:rand(.25,.5) };
+        } else {
+          e.state = "form"; e.fade = 0;
+          e.x = G.form.x + e.col*G.form.spX;
+          e.y = G.form.y + e.row*G.form.spY;
+        }
       }
       // ram the player
       if(p.alive && Math.abs(e.x-p.x) < 30+(p.mk-1)*2.5 && Math.abs(e.y-p.y) < 26+(p.mk-1)*1.5){ e.hp = 0; hitPlayer(); }
@@ -949,31 +864,56 @@ function update(dt){
     const b = G.boss; b.t += dt;
     if(b.y < b.ty) b.y += 90*dt;
     else {
-      b.x += b.dir * (70 + (1-b.hp/b.maxHp)*90) * dt;
+      const fscale = Math.max(.6, 1 - (b.tier-1)*.12); // higher marks fire faster
+      let spd = 70 + (1-b.hp/b.maxHp)*90 + (b.tier-1)*22;
+      if(b.t < b.dashUntil) spd *= 3;
+      b.x += b.dir * spd * dt;
       if(b.x > W-140) b.dir = -1;
       if(b.x < 140) b.dir = 1;
+      if(b.tier >= 2){ // MK2+: strafe dash toward the player
+        b.dashT -= dt;
+        if(b.dashT <= 0){
+          b.dashT = rand(4, 7);
+          b.dashUntil = b.t + .7;
+          b.dir = G.player.x > b.x ? 1 : -1;
+          Snd.dash();
+        }
+      }
+      if(b.tier >= 3){ // MK3+: launches escort fighters
+        b.escortT -= dt;
+        if(b.escortT <= 0){
+          b.escortT = rand(6, 9);
+          if(G.enemies.filter(e=>e.hp>0).length < 4){
+            spawnMinion(b.x-90, b.y+30);
+            spawnMinion(b.x+90, b.y+30);
+            Snd.chatter();
+          }
+        }
+      }
       b.fireT -= dt;
       if(b.fireT <= 0){
         const ph = b.hp / b.maxHp;
+        const wide = b.tier >= 4 ? [-.6,.6] : []; // MK4+: wider spreads, denser rings
+        const ringX = b.tier >= 4 ? 6 : 0;
         if(ph > .6){
-          b.fireT = 1.5;
-          for(const a of [-.35,-.12,.12,.35]) eAimed(b.x, b.y+40, a, 300);
+          b.fireT = 1.5 * fscale;
+          for(const a of [-.35,-.12,.12,.35,...wide]) eAimed(b.x, b.y+40, a, 300);
         } else if(ph > .3){
-          b.fireT = 1.1; b.pat++;
-          if(b.pat % 3 === 0){ ringBurst(b.x, b.y+20, 12, 240); }
-          else for(const a of [-.45,-.2,0,.2,.45]) eAimed(b.x, b.y+40, a, 340);
+          b.fireT = 1.1 * fscale; b.pat++;
+          if(b.pat % 3 === 0){ ringBurst(b.x, b.y+20, 12+ringX, 240); }
+          else for(const a of [-.45,-.2,0,.2,.45,...wide]) eAimed(b.x, b.y+40, a, 340);
         } else {
-          b.fireT = .8; b.pat++;
-          if(b.pat % 2 === 0) ringBurst(b.x, b.y+20, 16, 280);
-          for(const a of [-.3,0,.3]) eAimed(b.x, b.y+40, a, 400);
+          b.fireT = .8 * fscale; b.pat++;
+          if(b.pat % 2 === 0) ringBurst(b.x, b.y+20, 16+ringX, 280);
+          for(const a of [-.3,0,.3,...wide]) eAimed(b.x, b.y+40, a, 400);
         }
         Snd.eshoot();
       }
       b.mslT -= dt;
       if(b.mslT <= 0){
         const mph = b.hp / b.maxHp;
-        const n = mph > .6 ? 1 : mph > .3 ? 2 : 3;
-        b.mslT = mph > .6 ? 4.2 : mph > .3 ? 3.2 : 2.4;
+        const n = Math.min(5, (mph > .6 ? 1 : mph > .3 ? 2 : 3) + (b.tier-1));
+        b.mslT = (mph > .6 ? 4.2 : mph > .3 ? 3.2 : 2.4) * Math.max(.65, 1-(b.tier-1)*.12);
         for(let k=0;k<n;k++){
           const s = k%2===0 ? -1 : 1;
           G.emissiles.push({ x:b.x + s*85, y:b.y+30, vx:s*120, vy:140, sp:250, t:0, life:6 });
@@ -999,7 +939,8 @@ function update(dt){
     }
     if(b.hp <= 0){
       for(let k=0;k<5;k++) setTimeout(()=>{ if(state==="play") boom(b.x+rand(-100,100), b.y+rand(-40,40), k%2?COL.magenta:COL.amber, true); }, k*130);
-      addKill(1000, b.x, b.y);
+      addKill(1000 + (b.tier-1)*500, b.x, b.y);
+      G.enemies.forEach(e=>{ if(e.minion) e.hp = 0; }); // escorts die with their carrier
       if(G.player.mk < MAX_MK) dropCore(b.x, b.y);
       maybeDrop(b.x-50, b.y, 1); maybeDrop(b.x+50, b.y, 1);
       G.boss = null;
@@ -1018,6 +959,7 @@ function update(dt){
           hp: 20 + G.wave*4, maxHp: 20 + G.wave*4, spawnT:1.6 };
         toast("BROODMOTHER INBOUND", COL.acid);
         Snd.mship();
+        Snd.startUfo();
       }
     }
     if(G.mship){
@@ -1029,7 +971,7 @@ function update(dt){
         m.spawnT = 3.4;
         spawnSnake(m.x, m.y + 34);
       }
-      if(m.x < -160 || m.x > W+160){ G.mship = null; G.mshipT = 20; }
+      if(m.x < -160 || m.x > W+160){ G.mship = null; G.mshipT = 20; Snd.stopUfo(); }
     }
   }
 
@@ -1106,6 +1048,7 @@ function update(dt){
           if(G.player.mk < MAX_MK) dropCore(m.x, m.y); else maybeDrop(m.x, m.y, 1);
           maybeDrop(m.x+34, m.y, .8);
           G.mship = null; G.mshipT = 24;
+          Snd.stopUfo();
         }
       }
     }
@@ -1476,7 +1419,7 @@ function renderBoss(){
   ctx.shadowBlur = 0;
   ctx.fillStyle = COL.magenta; ctx.font = "700 12px ui-monospace,Menlo,monospace";
   ctx.textAlign = "center"; ctx.letterSpacing = "4px";
-  ctx.fillText("DREADNOUGHT", W/2, by-8);
+  ctx.fillText("DREADNOUGHT" + (b.tier > 1 ? " MK" + b.tier : ""), W/2, by-8);
   ctx.letterSpacing = "0px";
 }
 
@@ -1669,7 +1612,7 @@ function renderHUD(){
 /* ============================== FLOW ============================== */
 function startGame(){
   Snd.init();
-  Music.start();
+  Snd.startThruster();
   document.getElementById("menu").hidden = true;
   document.getElementById("gameover").hidden = true;
   paused = false; document.getElementById("paused").hidden = true;
@@ -1678,7 +1621,7 @@ function startGame(){
 }
 function gameOver(reason){
   state = "over";
-  Music.stop();
+  Snd.stopUfo();
   const best = Math.max(G.best, G.score);
   const isNew = G.score > G.best && G.score > 0;
   localStorage.setItem("nebulaSiegeBest", best);
