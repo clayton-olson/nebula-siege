@@ -176,10 +176,10 @@ const Snd = {
 /* ============================== MUSIC ============================== */
 /* Dark drum & bass, synthesized live: two-step break + detuned reese bass in E minor. */
 const Music = {
-  playing:false, timer:null, step:0, bar:0, nextT:0, bpm:172, vol:null, noiseBuf:null,
+  playing:false, timer:null, step:0, loop:0, nextT:0, bpm:172, vol:null, noiseBuf:null,
   ensure(){
     const c = Snd.ctx; if(!c) return false;
-    if(!this.vol){ this.vol = c.createGain(); this.vol.gain.value = .9; this.vol.connect(c.destination); }
+    if(!this.vol){ this.vol = c.createGain(); this.vol.gain.value = .5; this.vol.connect(c.destination); }
     if(!this.noiseBuf){
       const n = c.sampleRate * .3, b = c.createBuffer(1, n, c.sampleRate), d = b.getChannelData(0);
       for(let i=0;i<n;i++) d[i] = Math.random()*2-1;
@@ -190,7 +190,7 @@ const Music = {
   start(){
     Snd.init();
     if(!this.ensure()) return;
-    this.step = 0; this.bar = 0;
+    this.step = 0; this.loop = 0;
     if(this.playing) return;
     this.playing = true;
     this.nextT = Snd.ctx.currentTime + .06;
@@ -204,7 +204,7 @@ const Music = {
     while(this.nextT < c.currentTime + .12){
       if(!Snd.muted && !paused && state === "play") this.schedule(this.step, this.nextT, s16);
       this.step = (this.step + 1) % 32;
-      if(this.step === 0) this.bar = (this.bar + 2) % 8;
+      if(this.step === 0) this.loop = (this.loop + 1) % 8;
       this.nextT += s16;
     }
   },
@@ -213,7 +213,7 @@ const Music = {
     o.type = "sine";
     o.frequency.setValueAtTime(150, t);
     o.frequency.exponentialRampToValueAtTime(40, t + .12);
-    g.gain.setValueAtTime(.42, t);
+    g.gain.setValueAtTime(.32, t);
     g.gain.exponentialRampToValueAtTime(.001, t + .16);
     o.connect(g).connect(this.vol); o.start(t); o.stop(t + .18);
   },
@@ -248,8 +248,8 @@ const Music = {
     lp.frequency.linearRampToValueAtTime(260, t + dur);
     const g = c.createGain();
     g.gain.setValueAtTime(.0001, t);
-    g.gain.linearRampToValueAtTime(.14, t + .02);
-    g.gain.setValueAtTime(.14, t + Math.max(.03, dur - .06));
+    g.gain.linearRampToValueAtTime(.11, t + .02);
+    g.gain.setValueAtTime(.11, t + Math.max(.03, dur - .06));
     g.gain.linearRampToValueAtTime(.0001, t + dur);
     lp.connect(g); g.connect(this.vol);
     for(const det of [-14, 14]){
@@ -270,8 +270,8 @@ const Music = {
     lp.frequency.linearRampToValueAtTime(380, t + 11);
     const g = c.createGain();
     g.gain.setValueAtTime(.0001, t);
-    g.gain.linearRampToValueAtTime(.035, t + 2.5);
-    g.gain.setValueAtTime(.035, t + 8.5);
+    g.gain.linearRampToValueAtTime(.026, t + 2.5);
+    g.gain.setValueAtTime(.026, t + 8.5);
     g.gain.linearRampToValueAtTime(.0001, t + 11);
     lp.connect(g); g.connect(this.vol);
     for(const [f, det] of [[82.4,-6],[123.5,5],[164.8,-4],[196,7]]){ // E2 B2 E3 G3
@@ -285,31 +285,73 @@ const Music = {
     o.type = "sine";
     o.frequency.setValueAtTime(1318.5, t);
     o.frequency.exponentialRampToValueAtTime(987.8, t + .35);
-    g.gain.setValueAtTime(.03, t);
+    g.gain.setValueAtTime(.022, t);
     g.gain.exponentialRampToValueAtTime(.0005, t + .5);
     o.connect(g).connect(this.vol); o.start(t); o.stop(t + .55);
   },
+  stab(t){
+    const c = Snd.ctx;
+    const lp = c.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 950;
+    const g = c.createGain();
+    g.gain.setValueAtTime(.04, t);
+    g.gain.exponentialRampToValueAtTime(.001, t + .18);
+    lp.connect(g); g.connect(this.vol);
+    for(const f of [164.8, 196, 246.9]){ // E3 G3 B3 minor stab
+      const o = c.createOscillator(); o.type = "sawtooth"; o.frequency.value = f;
+      o.connect(lp); o.start(t); o.stop(t + .2);
+    }
+  },
+  pluck(f, t){
+    const c = Snd.ctx, o = c.createOscillator(), g = c.createGain();
+    o.type = "triangle"; o.frequency.value = f;
+    g.gain.setValueAtTime(.024, t);
+    g.gain.exponentialRampToValueAtTime(.0008, t + .12);
+    o.connect(g).connect(this.vol); o.start(t); o.stop(t + .14);
+  },
+  /* 16-bar arrangement: A A B B C C D D (two bars per loop).
+     A groove · B variation + stabs · C breakdown · D peak with arp.
+     A dreadnought overrides everything with the darker boss pattern. */
   schedule(st, t, s16){
     const boss = !!G.boss;
+    const loop = this.loop;
+    const section = boss ? 3 : (loop >> 1);
+    const fill = (loop === 1 || loop === 3 || loop === 7);
+    const breakdown = section === 2 && loop === 4 && !boss;
     const bar = st < 16 ? 0 : 1;
     const s = st % 16;
-    // two-step break
-    if(s === 0 || s === 10) this.kick(t);
-    if(bar === 1 && s === 13) this.kick(t);
-    if(s === 4 || s === 12) this.snare(t, .2);
-    if(bar === 1 && s === 15) this.snare(t, .07);
-    if(bar === 0 && s === 7) this.snare(t, .06);
-    if(s % 2 === 0) this.hat(t, s % 4 === 0 ? .05 : .09);
-    else if(boss || s % 4 === 3) this.hat(t, .035);
-    // reese bassline — darker half-step figure while the dreadnought is up
-    const E1 = 41.2, F1 = 43.65, G1 = 49.0, A1 = 55.0, Bb1 = 58.27;
-    const line = boss
-      ? [[0,E1,10],[10,F1,4],[16,E1,6],[22,Bb1,4],[26,F1,5]]
-      : [[0,E1,10],[10,E1,4],[16,G1,6],[22,Bb1,4],[26,A1,5]];
+    const E1=41.2, F1=43.65, G1=49.0, A1=55.0, Bb1=58.27, B1=61.74, C2=65.41;
+
+    /* drums */
+    if(!breakdown){
+      if(s === 0 || s === 10) this.kick(t);
+      if(section >= 1 && bar === 0 && s === 6) this.kick(t);
+      if(bar === 1 && s === 13 && section !== 2) this.kick(t);
+      if(fill && bar === 1 && st >= 28){
+        this.snare(t, .05 + (st - 28) * .03); // rising roll into the next phrase
+      } else {
+        if(s === 4 || s === 12) this.snare(t, .15);
+        if(bar === 1 && s === 15) this.snare(t, .05);
+        if(bar === 0 && s === 7 && loop % 3 === 0) this.snare(t, .04);
+      }
+    }
+    if(s % 2 === 0) this.hat(t, s % 4 === 0 ? .03 : .055);
+    else if(boss || section === 3 || s % 4 === 3) this.hat(t, .025);
+
+    /* rotating reese basslines */
+    const L1 = [[0,E1,10],[10,E1,4],[16,G1,6],[22,Bb1,4],[26,A1,5]];
+    const L2 = [[0,E1,6],[6,E1,3],[10,G1,4],[16,A1,6],[22,C2,4],[26,B1,4]];
+    const L3 = [[0,E1,3],[4,G1,3],[8,E1,3],[12,Bb1,3],[16,A1,3],[20,G1,3],[24,F1,3],[28,E1,3]];
+    const LB = [[0,E1,12],[16,Bb1,12]];
+    const LBOSS = [[0,E1,10],[10,F1,4],[16,E1,6],[22,Bb1,4],[26,F1,5]];
+    const line = boss ? LBOSS : breakdown ? LB : [L1, L2, L1, L3][section];
     for(const [ls, f, len] of line) if(st === ls) this.reese(f, t, len * s16);
-    // atmosphere
-    if(st === 0 && this.bar === 0) this.pad(t);
-    if(st === 28 && (this.bar === 4 || boss)) this.bleep(t);
+
+    /* color */
+    if(st === 0 && (loop === 0 || (loop === 4 && !boss))) this.pad(t);
+    if(section === 1 && loop === 2 && (st === 0 || st === 20)) this.stab(t);
+    if(section === 3 && !boss && st % 4 === 2)
+      this.pluck([329.6, 392, 493.9, 587.3][(st >> 2) % 4], t); // E4 G4 B4 D5 arp
+    if(st === 28 && (loop === 3 || loop === 5 || boss)) this.bleep(t);
   }
 };
 
